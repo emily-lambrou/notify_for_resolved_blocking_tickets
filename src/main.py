@@ -2,105 +2,87 @@ from logger import logger
 import config
 import graphql
 from utils import extract_related_issues
+import os
 
 
-def notify_closed_blocking_issues():
-    logger.info("Fetching recently closed issues...")
+def notify_closed_blocking_issue(issue_number):
+    logger.info(f"Processing closed issue #{issue_number}")
 
-    closed_issues = graphql.get_recent_closed_issues(
-        owner=config.repository_owner,
-        repo=config.repository_name
-    )
+    issue = graphql.get_issue_by_number(int(issue_number))
 
-    if not closed_issues:
-        logger.info("No recently closed issues found.")
+    labels = [
+        label["name"].lower()
+        for label in issue["labels"]["nodes"]
+    ]
+
+    # Only proceed if issue has label "blocking"
+    if "blocking" not in labels:
+        logger.info("Issue is not labeled 'blocking'. Skipping.")
         return
 
-    for issue in closed_issues:
-        issue_id = issue["id"]
-        issue_number = issue["number"]
+    related_refs = extract_related_issues(
+        issue.get("body", "")
+    )
 
-        labels = [
+    if not related_refs:
+        logger.info("No related issues found.")
+        return
+
+    for ref in related_refs:
+        related_issue = graphql.resolve_issue_reference(ref)
+
+        if not related_issue:
+            continue
+
+        if related_issue["state"] != "OPEN":
+            continue
+
+        related_labels = [
             label["name"].lower()
-            for label in issue["labels"]["nodes"]
+            for label in related_issue["labels"]["nodes"]
         ]
 
-        # Only process issues labeled "blocking"
-        if "blocking" not in labels:
-            continue
-
-        logger.info(f"Processing closed blocking issue #{issue_number}")
-
-        related_refs = extract_related_issues(
-            issue.get("body", "")
+        project_status = graphql.get_issue_status(
+            related_issue["id"],
+            config.status_field_name
         )
 
-        if not related_refs:
-            logger.info(
-                f"Issue #{issue_number} has no related issues."
+        is_blocked_label = "blocked" in related_labels
+        is_blocked_status = (
+            project_status is not None
+            and project_status.lower() == "blocked"
+        )
+
+        if is_blocked_label or is_blocked_status:
+            message = (
+                f"Ticket #{issue_number} has been resolved. "
+                f"Please check if this unblocked the current one."
             )
-            continue
 
-        for ref in related_refs:
-            related_issue = graphql.resolve_issue_reference(ref)
-
-            if not related_issue:
-                logger.warning(
-                    f"Could not resolve issue reference '{ref}'."
+            if config.DRY_RUN:
+                logger.info(
+                    f"[DRY RUN] Would comment on issue #{related_issue['number']}"
                 )
-                continue
-
-            related_issue_id = related_issue["id"]
-            related_issue_number = related_issue["number"]
-            related_issue_state = related_issue.get("state")
-
-            # Only process OPEN issues
-            if related_issue_state != "OPEN":
-                continue
-
-            related_labels = [
-                label["name"].lower()
-                for label in related_issue["labels"]["nodes"]
-            ]
-
-            project_status = graphql.get_issue_status(
-                related_issue_id,
-                config.status_field_name
-            )
-
-            is_blocked_label = "blocked" in related_labels
-            is_blocked_status = (
-                project_status is not None
-                and project_status.lower() == "blocked"
-            )
-
-            if is_blocked_label or is_blocked_status:
-                message = (
-                    f"Ticket #{issue_number} has been resolved. "
-                    f"Please check if this unblocked the current one."
+            else:
+                graphql.add_issue_comment(
+                    related_issue["id"],
+                    message
                 )
-
-                if config.dry_run:
-                    logger.info(
-                        f"[DRY RUN] Would comment on issue #{related_issue_number}"
-                    )
-                else:
-                    graphql.add_issue_comment(
-                        related_issue_id,
-                        message
-                    )
-                    logger.info(
-                        f"✅ Comment added to issue #{related_issue_number}"
-                    )
+                logger.info(
+                    f"✅ Comment added to issue #{related_issue['number']}"
+                )
 
 
 def main():
     logger.info("🔄 Blocking resolution process started...")
 
-    if config.DRY_RUN:
-        logger.info("DRY RUN MODE ON!")
+    issue_number = os.getenv("INPUT_ISSUE_NUMBER")
 
-    notify_closed_blocking_issues()
+    if not issue_number:
+        logger.error("No issue number provided.")
+        return
+
+    notify_closed_blocking_issue(issue_number)
 
 
 if __name__ == "__main__":
