@@ -25,6 +25,7 @@ Before you can start using this GitHub Action, you'll need to ensure you have th
 | `project_number`                     | The project number                                                                               |                                                         
 | `enterprise_github` _(optional)_     | `True` if you are using enterprise github and false if not. Default is `False`                   |
 | `repository_owner_type` _(optional)_ | The type of the repository owner (oragnization or user). Default is `user`                       |
+|  `issue_number `                     | The issue number that it got closed (the blocking issue)                                         | 
 | `dry_run` _(optional)_               | `True` if you want to enable dry-run mode. Default is `False`                                    |
 
 
@@ -69,6 +70,7 @@ jobs:
           gh_token: ${{ secrets.GH_TOKEN }}
           project_number: ${{ vars.PROJECT_NUMBER }}
           dry_run: ${{ vars.DRY_RUN }}
+          issue_number: ${{ github.event.issue.number }}
           enterprise_github: 'True'
           repository_owner_type: 'organization'
 ```
