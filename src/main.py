@@ -97,7 +97,7 @@ def notify_closed_blocking_issues():
 def main():
     logger.info("🔄 Blocking resolution process started...")
 
-    if config.dry_run:
+    if config.DRY_RUN:
         logger.info("DRY RUN MODE ON!")
 
     notify_closed_blocking_issues()
