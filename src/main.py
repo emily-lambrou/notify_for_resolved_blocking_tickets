@@ -1,8 +1,13 @@
 import os
 import json
 from config import DRY_RUN
-from graphql import get_issue_by_number, add_comment
+from graphql import (
+    get_issue_by_number,
+    get_project_status,
+    add_comment,
+)
 from utils import extract_related_issues
+
 
 def main():
     event_path = os.environ["GITHUB_EVENT_PATH"]
@@ -17,32 +22,67 @@ def main():
     issue_number = issue_data["number"]
     issue_state = issue_data["state"]
 
-    # Only run when issue is closed
+    # Run only when issue is closed
     if issue_state != "closed":
         return
 
+    # Fetch full issue details
     issue = get_issue_by_number(issue_number)
-    labels = [l["name"].lower() for l in issue["labels"]["nodes"]]
 
-    # Only proceed if closed issue has label "blocking"
+    labels = [
+        label["name"].lower()
+        for label in issue["labels"]["nodes"]
+    ]
+
+    # Continue only if closed issue has label "blocking"
     if "blocking" not in labels:
         return
 
-    related_numbers = extract_related_issues(issue.get("body", ""))
+    # Extract related issue numbers from body
+    related_numbers = extract_related_issues(
+        issue.get("body", "")
+    )
 
     for num in related_numbers:
         related_issue = get_issue_by_number(int(num))
 
+        # Only process OPEN issues
         if related_issue["state"] != "OPEN":
             continue
 
-        related_labels = [l["name"].lower() for l in related_issue["labels"]["nodes"]]
+        related_labels = [
+            label["name"].lower()
+            for label in related_issue["labels"]["nodes"]
+        ]
 
-        if "blocked" in related_labels:
-            message = f"Ticket #{issue_number} has been resolved. Please check if this unblocked the current one"
+        project_status = get_project_status(
+            related_issue["id"]
+        )
 
-            if not DRY_RUN:
-                add_comment(related_issue["id"], message)
+        is_blocked_label = "blocked" in related_labels
+        is_blocked_status = (
+            project_status is not None
+            and project_status.lower() == "blocked"
+        )
+
+        # Comment if label OR project status is Blocked
+        if is_blocked_label or is_blocked_status:
+
+            message = (
+                f"Ticket #{issue_number} has been resolved. "
+                f"Please check if this unblocked the current one."
+            )
+
+            if DRY_RUN:
+                print(
+                    f"[DRY RUN] Would comment on issue #{num}"
+                )
+            else:
+                add_comment(
+                    related_issue["id"],
+                    message
+                )
+
 
 if __name__ == "__main__":
     main()
