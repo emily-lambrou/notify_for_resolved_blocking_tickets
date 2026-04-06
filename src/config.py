@@ -8,7 +8,6 @@ REPOSITORY_OWNER_TYPE = os.getenv("INPUT_REPOSITORY_OWNER_TYPE", "organization")
 
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY", "")
 
-# Split owner and repository name correctly
 OWNER, REPO_NAME = GITHUB_REPOSITORY.split("/")
 
 BASE_URL = "https://github.intranet.unicaf.org/api"
