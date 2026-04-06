@@ -39,7 +39,9 @@ name: Notify stakeholders if a blocking issue is resolved
 
 on:
   issues:
-    types: [closed]
+    types:
+      - closed
+  workflow_dispatch:
 
 concurrency:
   group: notify_blocked_issues
@@ -47,21 +49,27 @@ concurrency:
 
 jobs:
   notify_blocked_issues:
+    # ✅ Run only when issue is actually closed
+    if: github.event_name == 'workflow_dispatch' || github.event.issue.state == 'closed'
+
     runs-on: self-hosted
     timeout-minutes: 10
+
+    env:
+      ACTIONS_RUNNER_DEBUG: 'true'
+      ACTIONS_STEP_DEBUG: 'true'
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Notify Blocked Issues When Blocking Issues Has Been Resolved
+      - name: Notify Blocked Issues When Blocking Issue Has Been Resolved
         uses: emily-lambrou/notify_for_resolved_blocking_tickets@v1.0
         with:
           gh_token: ${{ secrets.GH_TOKEN }}
           project_number: ${{ vars.PROJECT_NUMBER }}
           dry_run: ${{ vars.DRY_RUN }}
-          enterprise_github: 'True' 
-          repository_owner_type: organization"
-        
+          enterprise_github: 'True'
+          repository_owner_type: 'organization'
 ```
 
