@@ -1,3 +1,5 @@
+import re
+
 def extract_related_issues(body):
     if not body:
         return []
