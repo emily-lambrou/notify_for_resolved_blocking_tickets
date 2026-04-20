@@ -46,6 +46,57 @@ def get_issue_by_number(number):
 
 
 # -------------------------------------------------------------------
+# Get full issue context (body + comments + timeline)
+# -------------------------------------------------------------------
+def get_issue_full_context(number):
+    query = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        issue(number: $number) {
+          id
+          number
+          state
+          body
+          labels(first: 20) {
+            nodes { name }
+          }
+          comments(first: 100) {
+            nodes {
+              body
+            }
+          }
+          timelineItems(first: 100) {
+            nodes {
+              ... on CrossReferencedEvent {
+                source {
+                  ... on Issue {
+                    id
+                    number
+                    url
+                    state
+                    labels(first: 20) {
+                      nodes { name }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    data = run_query(query, {
+        "owner": OWNER,
+        "repo": REPO_NAME,
+        "number": number
+    })
+
+    return data.get("data", {}).get("repository", {}).get("issue")
+
+
+# -------------------------------------------------------------------
 # Resolve issue reference (cross-repo + URLs supported)
 # -------------------------------------------------------------------
 def resolve_issue_reference(reference):
