@@ -8,8 +8,8 @@ import os
 def notify_closed_blocking_issue(issue_number):
     logger.info(f"Processing closed issue #{issue_number}")
 
-    # Fetch the closed issue
-    issue = graphql.get_issue_by_number(int(issue_number))
+    # Fetch full issue context (body + comments + timeline)
+    issue = graphql.get_issue_full_context(int(issue_number))
 
     if not issue:
         logger.warning(f"Issue #{issue_number} not found.")
@@ -25,13 +25,41 @@ def notify_closed_blocking_issue(issue_number):
         logger.info("Issue is not labeled 'blocking'. Skipping.")
         return
 
-    related_refs = extract_related_issues(issue.get("body", ""))
+    all_refs = set()
 
-    if not related_refs:
+    # -------------------------------------------------------
+    # 1️⃣ Extract references from BODY
+    # -------------------------------------------------------
+    all_refs.update(
+        extract_related_issues(issue.get("body", ""))
+    )
+
+    # -------------------------------------------------------
+    # 2️⃣ Extract references from COMMENTS
+    # -------------------------------------------------------
+    comments = issue.get("comments", {}).get("nodes", [])
+    for comment in comments:
+        all_refs.update(
+            extract_related_issues(comment.get("body", ""))
+        )
+
+    # -------------------------------------------------------
+    # 3️⃣ Extract references from TIMELINE (cross references)
+    # -------------------------------------------------------
+    timeline = issue.get("timelineItems", {}).get("nodes", [])
+    for event in timeline:
+        source = event.get("source")
+        if source and source.get("url"):
+            all_refs.add(source.get("url"))
+
+    if not all_refs:
         logger.info("No related issues found.")
         return
 
-    for ref in related_refs:
+    # -------------------------------------------------------
+    # Process each detected related issue
+    # -------------------------------------------------------
+    for ref in all_refs:
         logger.info(f"Resolving reference: {ref}")
 
         related_issue = graphql.resolve_issue_reference(ref)
