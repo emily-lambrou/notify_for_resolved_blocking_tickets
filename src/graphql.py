@@ -168,22 +168,38 @@ def resolve_issue_reference(reference):
 # Get project status for issue
 # -------------------------------------------------------------------
 def get_project_status(issue_id):
+
     query = """
-    query($owner: String!, $projectNumber: Int!) {
+    query(
+        $owner: String!,
+        $projectNumber: Int!,
+        $cursor: String
+    ) {
       organization(login: $owner) {
+
         projectV2(number: $projectNumber) {
-          items(first: 100) {
+
+          items(first: 100, after: $cursor) {
+
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+
             nodes {
+
               content {
                 ... on Issue {
                   id
                 }
               }
+
               fieldValueByName(name: "Status") {
                 ... on ProjectV2ItemFieldSingleSelectValue {
                   name
                 }
               }
+
             }
           }
         }
@@ -191,25 +207,53 @@ def get_project_status(issue_id):
     }
     """
 
-    data = run_query(query, {
-        "owner": OWNER,
-        "projectNumber": PROJECT_NUMBER
-    })
+    cursor = None
 
-    items = (
-        data.get("data", {})
-        .get("organization", {})
-        .get("projectV2", {})
-        .get("items", {})
-        .get("nodes", [])
-    )
+    while True:
 
-    for item in items:
-        content = item.get("content")
-        if content and content.get("id") == issue_id:
-            status = item.get("fieldValueByName")
-            if status:
-                return status.get("name")
+        data = run_query(query, {
+            "owner": OWNER,
+            "projectNumber": PROJECT_NUMBER,
+            "cursor": cursor
+        })
+
+        items_data = (
+            data.get("data", {})
+            .get("organization", {})
+            .get("projectV2", {})
+            .get("items", {})
+        )
+
+        items = items_data.get("nodes", [])
+
+        # ---------------------------------------------------
+        # Search current page
+        # ---------------------------------------------------
+        for item in items:
+
+            content = item.get("content")
+
+            if content and content.get("id") == issue_id:
+
+                status = item.get("fieldValueByName")
+
+                if status:
+                    return status.get("name")
+
+                return None
+
+        # ---------------------------------------------------
+        # Pagination
+        # ---------------------------------------------------
+        page_info = items_data.get("pageInfo", {})
+
+        has_next_page = page_info.get("hasNextPage")
+        end_cursor = page_info.get("endCursor")
+
+        if not has_next_page:
+            break
+
+        cursor = end_cursor
 
     return None
 
