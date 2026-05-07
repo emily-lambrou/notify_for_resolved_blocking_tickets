@@ -12,7 +12,9 @@ def run_query(query, variables=None):
         json={"query": query, "variables": variables or {}},
         headers=HEADERS,
     )
+
     response.raise_for_status()
+
     return response.json()
 
 
@@ -20,19 +22,29 @@ def run_query(query, variables=None):
 # Get issue by number (same repository)
 # -------------------------------------------------------------------
 def get_issue_by_number(number):
+
     query = """
     query($owner: String!, $repo: String!, $number: Int!) {
+
       repository(owner: $owner, name: $repo) {
+
         issue(number: $number) {
+
           id
           number
           state
           body
+
           labels(first: 20) {
-            nodes { name }
+            nodes {
+              name
+            }
           }
+
         }
+
       }
+
     }
     """
 
@@ -42,48 +54,77 @@ def get_issue_by_number(number):
         "number": number
     })
 
-    return data.get("data", {}).get("repository", {}).get("issue")
+    return (
+        data.get("data", {})
+        .get("repository", {})
+        .get("issue")
+    )
 
 
 # -------------------------------------------------------------------
 # Get full issue context (body + comments + timeline)
 # -------------------------------------------------------------------
 def get_issue_full_context(number):
+
     query = """
     query($owner: String!, $repo: String!, $number: Int!) {
+
       repository(owner: $owner, name: $repo) {
+
         issue(number: $number) {
+
           id
           number
           state
           body
+
           labels(first: 20) {
-            nodes { name }
+            nodes {
+              name
+            }
           }
+
           comments(first: 100) {
             nodes {
               body
             }
           }
+
           timelineItems(first: 100) {
+
             nodes {
+
               ... on CrossReferencedEvent {
+
                 source {
+
                   ... on Issue {
+
                     id
                     number
                     url
                     state
+
                     labels(first: 20) {
-                      nodes { name }
+                      nodes {
+                        name
+                      }
                     }
+
                   }
+
                 }
+
               }
+
             }
+
           }
+
         }
+
       }
+
     }
     """
 
@@ -93,7 +134,11 @@ def get_issue_full_context(number):
         "number": number
     })
 
-    return data.get("data", {}).get("repository", {}).get("issue")
+    return (
+        data.get("data", {})
+        .get("repository", {})
+        .get("issue")
+    )
 
 
 # -------------------------------------------------------------------
@@ -119,11 +164,13 @@ def resolve_issue_reference(reference):
     )
 
     if url_match:
+
         owner = url_match.group("org")
         repo = url_match.group("repo")
         number = int(url_match.group("number"))
 
     else:
+
         # -------------------------------------------------------
         # 2️⃣ #123 / repo#123 / org/repo#123
         # -------------------------------------------------------
@@ -141,17 +188,46 @@ def resolve_issue_reference(reference):
 
     query = """
     query($owner: String!, $repo: String!, $number: Int!) {
+
       repository(owner: $owner, name: $repo) {
+
         issue(number: $number) {
+
           id
           number
           state
           body
+
           labels(first: 20) {
-            nodes { name }
+            nodes {
+              name
+            }
           }
+
+          projectItems(first: 10) {
+
+            nodes {
+
+              project {
+                number
+              }
+
+              fieldValueByName(name: "Status") {
+
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                }
+
+              }
+
+            }
+
+          }
+
         }
+
       }
+
     }
     """
 
@@ -161,99 +237,34 @@ def resolve_issue_reference(reference):
         "number": number
     })
 
-    return data.get("data", {}).get("repository", {}).get("issue")
+    return (
+        data.get("data", {})
+        .get("repository", {})
+        .get("issue")
+    )
 
 
 # -------------------------------------------------------------------
-# Get project status for issue
+# Get project status from issue project items
 # -------------------------------------------------------------------
-def get_project_status(issue_id):
+def get_project_status(issue):
 
-    query = """
-    query(
-        $owner: String!,
-        $projectNumber: Int!,
-        $cursor: String
-    ) {
-      organization(login: $owner) {
+    project_items = (
+        issue.get("projectItems", {})
+        .get("nodes", [])
+    )
 
-        projectV2(number: $projectNumber) {
+    for item in project_items:
 
-          items(first: 100, after: $cursor) {
+        project = item.get("project")
 
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
+        # Ensure correct project
+        if project and project.get("number") == PROJECT_NUMBER:
 
-            nodes {
+            status = item.get("fieldValueByName")
 
-              content {
-                ... on Issue {
-                  id
-                }
-              }
-
-              fieldValueByName(name: "Status") {
-                ... on ProjectV2ItemFieldSingleSelectValue {
-                  name
-                }
-              }
-
-            }
-          }
-        }
-      }
-    }
-    """
-
-    cursor = None
-
-    while True:
-
-        data = run_query(query, {
-            "owner": OWNER,
-            "projectNumber": PROJECT_NUMBER,
-            "cursor": cursor
-        })
-
-        items_data = (
-            data.get("data", {})
-            .get("organization", {})
-            .get("projectV2", {})
-            .get("items", {})
-        )
-
-        items = items_data.get("nodes", [])
-
-        # ---------------------------------------------------
-        # Search current page
-        # ---------------------------------------------------
-        for item in items:
-
-            content = item.get("content")
-
-            if content and content.get("id") == issue_id:
-
-                status = item.get("fieldValueByName")
-
-                if status:
-                    return status.get("name")
-
-                return None
-
-        # ---------------------------------------------------
-        # Pagination
-        # ---------------------------------------------------
-        page_info = items_data.get("pageInfo", {})
-
-        has_next_page = page_info.get("hasNextPage")
-        end_cursor = page_info.get("endCursor")
-
-        if not has_next_page:
-            break
-
-        cursor = end_cursor
+            if status:
+                return status.get("name")
 
     return None
 
@@ -262,11 +273,19 @@ def get_project_status(issue_id):
 # Add comment to issue
 # -------------------------------------------------------------------
 def add_comment(issue_id, body):
+
     mutation = """
     mutation($subjectId: ID!, $body: String!) {
-      addComment(input: {subjectId: $subjectId, body: $body}) {
+
+      addComment(
+        input: {
+          subjectId: $subjectId,
+          body: $body
+        }
+      ) {
         clientMutationId
       }
+
     }
     """
 
